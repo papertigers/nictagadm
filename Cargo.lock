@@ -1,0 +1,23 @@
+[[package]]
+name = "libc"
+version = "0.2.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "nictagadm"
+version = "0.1.0"
+dependencies = [
+ "zonename 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "zonename"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[metadata]
+"checksum libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)" = "48450664a984b25d5b479554c29cc04e3150c97aa4c01da5604a2d4ed9151476"
+"checksum zonename 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea9a7a2352c276be710aba103c4ec5d36d195bcac8e14b61d9641d183acc8fae"

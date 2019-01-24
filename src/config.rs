@@ -1,53 +1,69 @@
-use crate::bootparams;
+use crate::errors::SdcConfigError;
+use crate::utils;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+
+/// Return `true` if boot-time networking is enabled.
+pub fn boot_file_config_enabled() -> std::io::Result<bool> {
+    let out = Command::new("/usr/lib/sdc/net-boot-config")
+        .arg("--enabled")
+        .output()?;
+    Ok(out.status.success())
+}
+
 /// Lookup a svcprop by forking svcprop. Ignoring exit status
 /// In the future it would be nice to have an svc crate.
-macro_rules! svc_prop {
-    ($svc:expr, $prop:expr) => {{
-        let output = Command::new("svcprop")
-            .args(&["-p", $prop, $svc])
-            .output()
-            .expect("failed to execute svcprop")
-            .stdout;
-        String::from(std::str::from_utf8(&output)
-            .expect("invalid utf8 data from svcprop")
-            .trim())
-    };
-}}
+pub fn svc_prop<S: AsRef<str>>(prop: S, svc: S) -> Result<String, SdcConfigError> {
+    let output = Command::new("svcprop")
+        .args(&["-p", prop.as_ref(), svc.as_ref()])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(SdcConfigError::BadExitStatus("svcprop".to_string(), output.status));
+    }
+    Ok(String::from(std::str::from_utf8(&output.stdout)?.trim()))
+
+}
+
+/// Mapping of SDC config variables to values
+#[derive(Debug)]
+pub struct SdcConfig(HashMap<String, String>);
+
+impl SdcConfig {
+    // XXX add impl
+}
 
 /// SDC config paths
 #[derive(Debug)]
-struct SdcConfig {
+struct SdcConfigPaths {
     pub config_file: PathBuf,
     pub config_inc_dir: PathBuf,
 }
 
-/// Returns an `SdcConfig` with the location of the config file. This can
+/// Returns an `SdcConfigPaths` with the location of the config file. This can
 /// come from the USB key, /opt/smartdc/config/node.config, or (if on an unsetup
 /// CN) /var/tmp/node.config/node.config
-fn get_sdc_config_filename() -> SdcConfig {
+fn get_sdc_config_filename() -> Result<SdcConfigPaths, SdcConfigError> {
     // default config
     let default = Path::new("/opt/smartdc/config/node.config");
-    let mut sdc_config = String::new();
     let mut sdc_config_inc = String::new();
     let mut cn_config = String::new();
 
-    let prop = svc_prop!(
-        "svc:/system/filesystem/smartdc:default",
-        "joyentfs/usb_copy_path"
-    );
-    sdc_config = format!("{}/config", &prop);
+    let prop = svc_prop(
+        "joyentfs/usb_copy_path",
+        "svc:/system/filesystem/smartdc:default"
+    )?;
+    let mut sdc_config = format!("{}/config", &prop);
     if !Path::new(&sdc_config).exists() {
-        let prop = svc_prop!(
-            "svc:/system/filesystem/smartdc:default",
-            "joyentfs/usb_mountpoint"
-        );
+        let prop = svc_prop(
+            "joyentfs/usb_mountpoint",
+            "svc:/system/filesystem/smartdc:default"
+        )?;
         sdc_config = format!("/mnt/{}/config", &prop);
     }
 
@@ -61,6 +77,7 @@ fn get_sdc_config_filename() -> SdcConfig {
 
     if Path::new(&cn_config).exists() {
         if Path::new(&sdc_config).exists() {
+            // unwrap because we demand nictagadm be ran as root
             let mut dev_msg = File::open("/dev/msglog").unwrap();
             let _ = writeln!(&mut dev_msg, "WARNING: ignoring config at {} since we have {}",
                 &cn_config, sdc_config);
@@ -74,29 +91,38 @@ fn get_sdc_config_filename() -> SdcConfig {
         }
     }
 
-    SdcConfig {
+    Ok(SdcConfigPaths {
         config_file: sdc_config.into(),
         config_inc_dir: sdc_config_inc.into()
-    }
+    })
 }
 
-fn sdc_config_to_map(conf: &SdcConfig) -> HashMap<String, String> {
-    let map = HashMap::new();
-    map
+fn sdc_config_to_map(
+    config: &SdcConfigPaths,
+    headnode: bool)
+    -> Result<SdcConfig, SdcConfigError> {
+    let mut map = HashMap::new();
+    // XXX check for GEN
+
+    let f = match File::open(&config.config_file) {
+        Ok(f) => f,
+        Err(_) if headnode => {
+            println!("FATAL: Unable to load headnode config.");
+            std::process::exit(1);
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let f = BufReader::new(f);
+    utils::parse_config_file(f, Some(r"^[a-zA-Z].*$"), &mut map);
+    map.insert("config_inc_dir".into(),
+        config.config_inc_dir.to_str().unwrap().into());
+
+    Ok(SdcConfig(map))
 }
 
 /// Loads sdc config variables
-pub fn load_sdc_config() {
-    let mut headnode = false;
-
-    let bootparams = bootparams::get_bootparams();
-    if let Some(val) = bootparams.get("headnode") {
-        if val == "true" {
-            headnode = true
-        };
-    }
-
-    let sdc_config = get_sdc_config_filename();
-    let config = sdc_config_to_map(&sdc_config);
-    println!("{:?}", config);
+pub fn load_sdc_config(headnode: bool) -> Result<SdcConfig, SdcConfigError> {
+    let paths = get_sdc_config_filename()?;
+    let config = sdc_config_to_map(&paths, headnode)?;
+    Ok(config)
 }

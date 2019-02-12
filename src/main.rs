@@ -22,10 +22,14 @@ fn find_config_paths(smartos: bool) -> Result<bool, SdcConfigError> {
         }
     }
 
-    let usb_config_copy = config::svc_prop("joyentfs/usb_copy_path",
-        "svc:/system/filesystem/smartdc:default")?;
-    let usb_mnt = config::svc_prop("joyentfs/usb_mountpoint",
-        "svc:/system/filesystem/smartdc:default")?;
+    let usb_config_copy = config::svc_prop(
+        "joyentfs/usb_copy_path",
+        "svc:/system/filesystem/smartdc:default",
+    )?;
+    let usb_mnt = config::svc_prop(
+        "joyentfs/usb_mountpoint",
+        "svc:/system/filesystem/smartdc:default",
+    )?;
 
     Ok(true)
 }
@@ -42,7 +46,7 @@ fn main() {
         pub fn geteuid() -> u32;
     }
 
-    if unsafe { geteuid() != 0  } {
+    if unsafe { geteuid() != 0 } {
         eprintln!("This program can only be run as root");
         std::process::exit(1);
     }
@@ -55,10 +59,14 @@ fn main() {
 
     let bootparams = bootparams::get_bootparams();
     if let Some(val) = bootparams.get("headnode") {
-        if val == "true" { headnode = true };
+        if val == "true" {
+            headnode = true
+        };
     }
     if let Some(val) = bootparams.get("smartos") {
-        if val == "true" { smartos = true };
+        if val == "true" {
+            smartos = true
+        };
     }
 
     let config = config::load_sdc_config(headnode).unwrap();
